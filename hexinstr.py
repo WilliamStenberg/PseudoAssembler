@@ -26,7 +26,7 @@ Example:
 import argparse  # Command line arguments
 import re  # Variable parsing
 from enum import Enum  # Error types
-import os.path
+import os.path  # Check file existence
 
 current_addr = 0x0
 err_count = 0
@@ -63,11 +63,14 @@ instructions = {
 class Error(Enum):
     """ Used in debugging """
     FILE_ERROR = "File error"
-    VAR_ERROR = "Variable error"
-    MODE_ERROR = "Mode error"
-    DEFINE_ERROR = "Define error"
-    FORMAT_ERROR = "Format error"
+    VAR_ERROR = "Variable access error"
+    MODE_ERROR = "Adressing mode error"
+    DEFINE_ERROR = "Variable definition error"
+    FORMAT_ERROR = "Instruction format error"
     INSTR_ERROR = "Instruction error"
+    SUBRDEF_ERROR = "Subroutine definition error"
+    SUBR_ERROR = "Subroutine access error"
+    REG_ERROR = "Register format error"
 
 
 def check(predicate, info, err):
@@ -93,6 +96,10 @@ def ext_zeroes(seq, n):
         seq = "0" + seq
     return seq
 
+def trim_name(seq):
+    """ Trims variable or subroutine name """
+    p = re.compile("[^A-Z|0-9|_]")
+    return p.sub("", seq)
 
 def is_hexchar(char):
     """ Determine if given character is valid hex """
@@ -132,10 +139,19 @@ def define_variable(words):
     Keyword: define a var as hex value using %
     Example: DEF %i 5
     """
-    if check(len(words) == 3 and words[0] == "DEF" and words[1][0] == "%", words, Error.DEFINE_ERROR):
-        var_table[words[1]] = trim_hex(words[2])
+    if check(len(words) == 3 and words[0] == "DEF" and words[1][0] == "%", 
+            words, Error.DEFINE_ERROR):
+        var_table["%" + trim_name(words[1])] = trim_hex(words[2])
 
-keywords = {"DEF": define_variable}
+
+def define_subroutine(words):
+    if check(len(words) == 2 and words[0] == ":" 
+            and words[1] == trim_name(words[1]), 
+            words, Error.SUBRDEF_ERROR):
+        var_table[":"+words[1]] = hex(current_addr)[2:]
+
+
+keywords = {"DEF": define_variable, ":": define_subroutine}
 
 
 """ HEX CODE GENERATORS """
@@ -158,7 +174,7 @@ def generate_format_1(opcode_hex, operand):
     if not check(mode_identifier in modes, "mode1, {}".format(operand), Error.MODE_ERROR):
         return "0"
     mode = hex_to_bin(modes[mode_identifier], 3)
-    opcode = hex_to_bin(opcode_hex[0], 6)
+    opcode = hex_to_bin(opcode_hex, 6)
 
     operand = hex_to_bin(trim_hex(operand), 23)
     bit_str = opcode + mode + operand
@@ -172,6 +188,8 @@ def generate_format_2(opcode_hex, reg_index, operand):
     """
     mode_identifier = operand[0]
     if not check(mode_identifier in modes, "mode2, {}".format(operand), Error.MODE_ERROR):
+        return "0"
+    if not check(reg_index[0] == "R", "mode2, {}".format(reg_index), Error.REG_ERROR):
         return "0"
     mode = hex_to_bin(modes[mode_identifier], 3)
     opcode = hex_to_bin(opcode_hex, 6)
@@ -206,15 +224,17 @@ def trim_line_to_words(line):
     line = line.upper()
     if "--" in line:
         line = line.split("--")[0]  # Trim away comments
-
-    # Replace %varname with var values if existing
-    p = re.compile("%[a-z]+")
-    for match in p.finditer(line):
-        if check(match.group() in var_table, match.group(), Error.VAR_ERROR):
-            line.replace(match.group(), var_table[match.group()])
-
-    for var, val in var_table.items():
-        line.replace(var, val)  # Replace with variable values
+    if line.split(" ")[0] not in keywords:
+        # Replace %varname with var values if existing
+        p = re.compile("%[A-Z|0-9|_]+")
+        for match in p.finditer(line):
+            if check(match.group() in var_table, match.group(), Error.VAR_ERROR):
+                line = line.replace(match.group(), var_table[match.group()])
+        # Replace :subrname with subroutine addr
+        p = re.compile(":[A-Z|0-9|_]+")
+        for match in p.finditer(line):
+            if check(match.group() in var_table, match.group(), Error.SUBR_ERROR):
+                line = line.replace(match.group(), var_table[match.group()])
 
     words = list(filter(None, line.split(" ")))
     return words
