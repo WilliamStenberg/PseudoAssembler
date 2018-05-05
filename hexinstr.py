@@ -246,7 +246,7 @@ def trim_line_to_words(line, ignore_functions=False):
     return words
 
 
-def parse_line(line, verbose=False, silent=True):
+def parse_line(line, verbose=False, silent=False):
     """ 
     Parses line using instruction table, prints hex 
     Line on format: (str instr_name, hexstr mode, hexstr operand)
