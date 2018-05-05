@@ -12,16 +12,17 @@ Assembly pseudocode:
     3.  [str INSTRUCTION] [str "R"+REG1_INDEX], [str "R"+REG2_INDEX]
 
 Generates:
-    (0.)[op-code (6 bit)][zeroes (24 bit)]
-    1.  [op-code (6 bit)] [mode identification (3 bit)] [operand (23 bit)]
-    2.  [op-code (6 bit)] [mode identification (3 bit)]
-        [register index (4 bit)][operand (19 bit)]
-    3.  [op-code (6 bit)] [mode 0 (3 bit)] [register index (4 bit)]
-        [register index (4 bit)] [zeroes (15 bit)]
+    (0.)[op-code (5 bit)][zeroes (24 bit)]
+    1.  [op-code (5 bit)] [mode identification (2 bit)] [operand (25 bit)]
+    2.  [op-code (5 bit)] [mode identification (2 bit)]
+        [register index (4 bit)][operand (21 bit)]
+    3.  [op-code (5 bit)] [mode 0 (2 bit)] [register index (4 bit)]
+        [register index (4 bit)] [zeroes (17 bit)]
 
 Example:
     LOAD R2, $FF =>
 
+5 bit opcod, 2 bit mod, 
 """
 import argparse  # Command line arguments
 import re  # Variable parsing
@@ -31,32 +32,28 @@ import os.path  # Check file existence
 current_addr = 0x0
 err_count = 0
 var_table = {}
+raw_data = None
 
 modes = {
     "": "0",   # No mode - format 3 (double registers)
-    "$": "1",   # direct memory addressing
-    "#": "2",   # Immediate (operand value)
-    "(": "3",   # Indirect (follow operand addr)
-    "I": "4",   # Indexed (follow operand + value of reg) only format 2
+    "#": "1",   # direct memory addressing (data on next PM row)
+    "$": "2",   # Data on memory adr specified
+    "(": "3",   # Indirect (follow operand + GR15)
     }
 
 # Since op-code has 6 bits, 64 instructions can be defined
 # Rn/Rm: register with number, EA: effective address (use modes e.g. $FF)
 instructions = {
     # INSTR : int format (0 to 3), hexstr OPCODE
-    "NOP": [0, "00"],       # NOP
-    "LOAD": [2, "01"],      # LOAD Rn, EA
-    "STORE": [2, "02"],     # STORE Rn, EA
-    "ADD": [2, "03"],       # ADD Rn, EA
-    "ADD.R": [3, "04"],     # ADD.R Rn, Rm
-    "SUB": [2, "05"],       # SUB Rn, EA
-    "SUB.R": [3, "06"],     # SUB.R Rn, Rm
-    "AND": [3, "07"],       # AND Rn, Rm
-    "BRA": [1, "08"],       # BRA EA
-    "BNE": [1, "09"],       # BRA EA
-    "HALT": [0, "0A"],      # HALT
-    "CMP": [3, "0B"],       # CMP Rn, Rm
-    "BGE": [2, "0C"],       # BGE EA
+    "NOP": [0, "00"],      
+    "BRA": [1, "01"],     
+    "LOAD": [2, "02"],   
+    "ADD": [3, "03"],   
+    "SUB": [3, "04"],  
+    "MOV": [3, "05"], 
+    "BEQ": [1, "06"],
+    "CMP": [3, "07"],
+    "STORE":[2, "08"]
     }
 
 
@@ -75,11 +72,11 @@ class Error(Enum):
 
 def check(predicate, info, err):
     """ Only signals, does not stop execution """
-    global err_count
+    global err_count, current_addr
     if predicate:
         return True
     else:
-        print("{} ({})".format(err.value, info))
+        print("{} ({}) at {}".format(err.value, info, hex(current_addr)))
         err_count += 1
         return False
 
@@ -145,8 +142,8 @@ def define_variable(words):
 
 
 def define_subroutine(words):
-    if check(len(words) == 2 and words[0] == ":" 
-            and words[1] == trim_name(words[1]), 
+    if check(len(words) == 2 and words[0] == ":"
+            and words[1] == trim_name(words[1]),
             words, Error.SUBRDEF_ERROR):
         var_table[":"+words[1]] = hex(current_addr)[2:]
 
@@ -159,8 +156,8 @@ keywords = {"DEF": define_variable, ":": define_subroutine}
 
 def generate_format_0(opcode_hex):
     """ Returns the opcode and zeroes """
-    opcode = hex_to_bin(opcode_hex, 6)
-    bit_str = opcode + "0"*24
+    opcode = hex_to_bin(opcode_hex, 5)
+    bit_str = opcode + "0"*27
     hex_str = bin_to_hex(bit_str)
     return hex_str
 
@@ -168,15 +165,18 @@ def generate_format_0(opcode_hex):
 def generate_format_1(opcode_hex, operand):
     """
     Generates hex instruction string for given mode and operand, in format 1:
-    OPCODE(6) MODE(3) OPERAND(23)
+    OPCODE(5) MODE(2) OPERAND(25)
     """
+    global raw_data
     mode_identifier = operand[0]
-    if not check(mode_identifier in modes, "mode1, {}".format(operand), Error.MODE_ERROR):
+    if not check(mode_identifier in modes, "format1, {}".format(operand), Error.MODE_ERROR):
         return "0"
-    mode = hex_to_bin(modes[mode_identifier], 3)
-    opcode = hex_to_bin(opcode_hex, 6)
-
-    operand = hex_to_bin(trim_hex(operand), 23)
+    mode = hex_to_bin(modes[mode_identifier], 2)
+    opcode = hex_to_bin(opcode_hex, 5)
+    operand = hex_to_bin(trim_hex(operand), 25)
+    if mode == "01":
+        raw_data = bin_to_hex(ext_zeroes(operand, 32))
+        operand = "0" * 25
     bit_str = opcode + mode + operand
     return bin_to_hex(bit_str)
 
@@ -184,17 +184,20 @@ def generate_format_1(opcode_hex, operand):
 def generate_format_2(opcode_hex, reg_index, operand):
     """
     Generates hex instruction string, format 2:
-    OPCODE(6) MODE(3) REG(4) OPERAND(19)
+    OPCODE(5) MODE(2) REG(4) OPERAND(21)
     """
+    global raw_data
     mode_identifier = operand[0]
-    if not check(mode_identifier in modes, "mode2, {}".format(operand), Error.MODE_ERROR):
+    if not check(mode_identifier in modes, "format2, {}".format(operand), Error.MODE_ERROR):
         return "0"
     if not check(reg_index[0] == "R", "mode2, {}".format(reg_index), Error.REG_ERROR):
         return "0"
-    mode = hex_to_bin(modes[mode_identifier], 3)
-    opcode = hex_to_bin(opcode_hex, 6)
-
-    operand = hex_to_bin(trim_hex(operand), 19)
+    mode = hex_to_bin(modes[mode_identifier], 2)
+    opcode = hex_to_bin(opcode_hex, 5)
+    operand = hex_to_bin(trim_hex(operand), 21)
+    if mode == "01":
+        raw_data = bin_to_hex(ext_zeroes(operand, 32))
+        operand = "0" * 21
     reg = hex_to_bin(trim_hex(reg_index), 4)
     bit_str = opcode + mode + reg + operand
     return bin_to_hex(bit_str)
@@ -203,20 +206,20 @@ def generate_format_2(opcode_hex, reg_index, operand):
 def generate_format_3(opcode_hex, reg1, reg2):
     """
     Generates hex instruction string, format 3:
-    OPCODE(6) zeroes(3) REG1(4) REG2(4) zeroes(15)
+    OPCODE(5) zeroes(2) REG1(4) REG2(4) zeroes(17)
     """
-    mode = "000"  # Mode not used for this
-    opcode = hex_to_bin(opcode_hex, 6)
+    mode = "00"  # Mode not used for this
+    opcode = hex_to_bin(opcode_hex, 5)
     reg1 = hex_to_bin(trim_hex(reg1), 4)
     reg2 = hex_to_bin(trim_hex(reg2), 4)
-    bit_str = opcode + mode + reg1 + reg2 + "0"*15
+    bit_str = opcode + mode + reg1 + reg2 + "0"*17
     return bin_to_hex(bit_str)
 
 
 """ INPUT PARSING """
 
 
-def trim_line_to_words(line):
+def trim_line_to_words(line, ignore_functions=False):
     """
     Trims comments and inserts variable values,
     returns word list split by space
@@ -230,23 +233,27 @@ def trim_line_to_words(line):
         for match in p.finditer(line):
             if check(match.group() in var_table, match.group(), Error.VAR_ERROR):
                 line = line.replace(match.group(), var_table[match.group()])
+
         # Replace :subrname with subroutine addr
         p = re.compile(":[A-Z|0-9|_]+")
         for match in p.finditer(line):
-            if check(match.group() in var_table, match.group(), Error.SUBR_ERROR):
+            if ignore_functions:
+                line = line.replace(match.group(), "00000000")  # Ignore function for preparing definitions
+            elif check(match.group() in var_table, match.group(), Error.SUBR_ERROR):
                 line = line.replace(match.group(), var_table[match.group()])
 
     words = list(filter(None, line.split(" ")))
     return words
 
 
-def parse_line(line, verbose=False):
+def parse_line(line, verbose=False, silent=True):
     """ 
     Parses line using instruction table, prints hex 
     Line on format: (str instr_name, hexstr mode, hexstr operand)
     """
-    global current_addr
-    words = trim_line_to_words(line)
+    global current_addr, raw_data
+
+    words = trim_line_to_words(line, silent)
     if not words:  # Empty line
         return
     if words[0] in keywords:
@@ -276,14 +283,25 @@ def parse_line(line, verbose=False):
                     hex_to_bin(hex_instr, 32),
                     line))
             else:
-                print(hex_instr)
+                if not silent:
+                    print(hex_instr)
+                if raw_data:
+                    if not silent:
+                        print(raw_data)
+                    raw_data = None
+                    current_addr += 0x4
             current_addr += 0x4
 
 
 def parse_file(file_name, verbose=False):
     """ Reads lines from file and passes them along """
+    global current_addr
     with open(file_name) as f:
-        for line in f.readlines():
+        lines = f.readlines()
+        for line in lines:
+            parse_line(line.rstrip(), verbose, True)
+        current_addr = 0
+        for line in lines:
             parse_line(line.rstrip(), verbose)
 
 
