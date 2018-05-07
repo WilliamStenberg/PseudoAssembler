@@ -19,10 +19,7 @@ Generates:
     3.  [op-code (5 bit)] [mode 0 (2 bit)] [register index (4 bit)]
         [register index (4 bit)] [zeroes (17 bit)]
 
-Example:
-    LOAD R2, $FF =>
 
-5 bit opcod, 2 bit mod, 
 """
 import argparse  # Command line arguments
 import re  # Variable parsing
@@ -48,12 +45,16 @@ instructions = {
     "NOP": [0, "00"],      
     "BRA": [1, "01"],     
     "LOAD": [2, "02"],   
-    "ADD": [3, "03"],   
-    "SUB": [3, "04"],  
+    "ADD": [2, "03"],   
+    "SUB": [2, "04"],  
     "MOV": [3, "05"], 
     "BEQ": [1, "06"],
     "CMP": [3, "07"],
-    "STORE":[2, "08"]
+    "STORE":[2, "08"],
+    "BNE"  :[1, "09"],
+    "ASL" : [2, "0A"],
+    "ASR" : [2, "0B"],
+    "BMI" : [1, "0C"]
     }
 
 
@@ -126,6 +127,21 @@ def bin_to_hex(binstr):
         hexc = hex(int(chunk, 2))[2:]
         hexstr += hexc.upper()
     return hexstr
+
+
+def format_binary(hexinstr):
+    """
+    Outputs a bit string with separating underscores,
+    equivalent, but more readable for uPC programming
+    Format (bits): 5_2_4_4_17
+    """
+    bitstr = hex_to_bin(hexinstr, 32)
+    return "b\"{}_{}_{}_{}_{}\",".format(bitstr[:5], bitstr[5:7], 
+            bitstr[7:11], bitstr[11:15], bitstr[15:])
+
+
+def format_hex(hexinstr):
+    return "X\"{}\",".format(hexinstr)
 
 
 """ SPECIAL LANGUAGE KEYWORDS """
@@ -246,7 +262,7 @@ def trim_line_to_words(line, ignore_functions=False):
     return words
 
 
-def parse_line(line, verbose=False, silent=False):
+def parse_line(line, verbose=False, silent=False, print_binary=False):
     """ 
     Parses line using instruction table, prints hex 
     Line on format: (str instr_name, hexstr mode, hexstr operand)
@@ -284,32 +300,38 @@ def parse_line(line, verbose=False, silent=False):
                     line))
             else:
                 if not silent:
-                    print(hex_instr)
+                    if print_binary:
+                        print(format_binary(hex_instr))
+                    else:
+                        print(format_hex(hex_instr))
                 if raw_data:
                     if not silent:
-                        print(raw_data)
+                        if print_binary:
+                            print(format_binary(raw_data))
+                        else:
+                            print(format_hex(raw_data))
                     raw_data = None
                     current_addr += 0x4
             current_addr += 0x4
 
 
-def parse_file(file_name, verbose=False):
+def parse_file(file_name, verbose=False, print_binary=False):
     """ Reads lines from file and passes them along """
     global current_addr
     with open(file_name) as f:
         lines = f.readlines()
         for line in lines:
-            parse_line(line.rstrip(), verbose, True)
+            parse_line(line.rstrip(), verbose, silent=True)
         current_addr = 0
         for line in lines:
-            parse_line(line.rstrip(), verbose)
+            parse_line(line.rstrip(), verbose, print_binary=print_binary)
 
 
-def line_loop(verbose=False):
+def line_loop(verbose=False, print_binary=False):
     """ Parses stdin lines until empty line """
     line = input()
     while line != "":
-        parse_line(line, verbose)
+        parse_line(line, verbose, print_binary)
         line = input()
 
 
@@ -318,12 +340,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert assembly pseudocode to hex")
     parser.add_argument("-f", "--file")
     parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("-b", "--binary", action="store_true")
     args = parser.parse_args()
     if args.file:
         if check(os.path.exists(args.file), args.file, Error.FILE_ERROR):
-            parse_file(args.file, args.verbose)
+            parse_file(args.file, args.verbose, args.binary)
     else:
-        line_loop(args.verbose)
+        line_loop(args.verbose, args.binary)
 
     if args.verbose:
         print()
