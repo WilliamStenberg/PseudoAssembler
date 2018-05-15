@@ -71,6 +71,7 @@ class Error(Enum):
     SUBRDEF_ERROR = "Subroutine definition error"
     SUBR_ERROR = "Subroutine access error"
     REG_ERROR = "Register format error"
+    RAW_ERROR = "Raw data error"
 
 
 def check(predicate, info, err):
@@ -149,7 +150,7 @@ def format_hex(hexinstr):
 """ SPECIAL LANGUAGE KEYWORDS """
 
 
-def define_variable(words):
+def define_variable(words, silent):
     """
     Keyword: define a var as hex value using %
     Example: DEF %i 5
@@ -159,14 +160,21 @@ def define_variable(words):
         var_table["%" + trim_name(words[1])] = trim_hex(words[2])
 
 
-def define_subroutine(words):
+def define_subroutine(words, silent):
     if check(len(words) == 2 and words[0] == ":"
             and words[1] == trim_name(words[1]),
             words, Error.SUBRDEF_ERROR):
         var_table[":"+words[1]] = hex(current_addr)[2:].upper()
 
 
-keywords = {"DEF": define_variable, ":": define_subroutine}
+def define_raw(words, silent):
+    global current_addr
+    if not silent and check(len(words) == 2 and words[0] == "£" and words[1] == trim_hex(words[1]),
+            words, Error.RAW_ERROR):
+        print(format_binary(words[1]))
+        current_addr += 0x1
+
+keywords = {"DEF": define_variable, ":": define_subroutine, "£": define_raw}
 
 
 """ HEX CODE GENERATORS """
@@ -216,7 +224,7 @@ def generate_format_2(opcode_hex, reg_index, operand):
     if mode == "01":
         raw_data = bin_to_hex(ext_zeroes(operand, 32))
         operand = "0" * 21
-    reg = hex_to_bin(trim_hex(reg_index), 4)
+    reg = "{0:04b}".format(int(trim_hex(reg_index)))
     bit_str = opcode + mode + reg + operand
     return bin_to_hex(bit_str)
 
@@ -228,8 +236,8 @@ def generate_format_3(opcode_hex, reg1, reg2):
     """
     mode = "00"  # Mode not used for this
     opcode = hex_to_bin(opcode_hex, 5)
-    reg1 = hex_to_bin(trim_hex(reg1), 4)
-    reg2 = hex_to_bin(trim_hex(reg2), 4)
+    reg1 = "{0:04b}".format(int(trim_hex(reg1)))
+    reg2 = "{0:04b}".format(int(trim_hex(reg2)))
     bit_str = opcode + mode + reg1 + reg2 + "0"*17
     return bin_to_hex(bit_str)
 
@@ -274,7 +282,7 @@ def parse_line(line, verbose=False, silent=False, print_binary=False):
     if not words:  # Empty line
         return
     if words[0] in keywords:
-        keywords[words[0]](words)
+        keywords[words[0]](words, silent)
     else:
         if check(words[0] in instructions, line, Error.INSTR_ERROR):
             instruction = instructions[words[0]]
@@ -291,7 +299,7 @@ def parse_line(line, verbose=False, silent=False, print_binary=False):
                 if check(len(words) == 3, words, Error.FORMAT_ERROR):
                     hex_instr = generate_format_2(opcode_hex, words[1], words[2])
             elif instr_format == 3:
-                if check(len(words) == 3, words, Error.FORMAT_ERROR):
+                if check(len(words) == 3 and "R" in words[2], words, Error.FORMAT_ERROR):
                     hex_instr = generate_format_3(opcode_hex, words[1], words[2])
             if verbose:
                 print("{}: 0x{} (0b{}) from \"{}\"".format(
@@ -312,8 +320,8 @@ def parse_line(line, verbose=False, silent=False, print_binary=False):
                         else:
                             print(format_hex(raw_data))
                     raw_data = None
-                    current_addr += 0x4
-            current_addr += 0x4
+                    current_addr += 0x1
+            current_addr += 0x1
 
 
 def parse_file(file_name, verbose=False, print_binary=False):
