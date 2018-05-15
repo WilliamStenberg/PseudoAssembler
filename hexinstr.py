@@ -45,8 +45,8 @@ instructions = {
     "NOP": [0, "00"],      
     "BRA": [1, "01"],     
     "LOAD": [2, "02"],   
-    "ADD": [2, "03"],   
-    "SUB": [2, "04"],  
+    "ADDR": [3, "03"],   
+    "SUBR": [3, "04"],  
     "MOV": [3, "05"], 
     "BEQ": [1, "06"],
     "CMP": [3, "07"],
@@ -54,7 +54,9 @@ instructions = {
     "BNE"  :[1, "09"],
     "ASL" : [2, "0A"],
     "ASR" : [2, "0B"],
-    "BMI" : [1, "0C"]
+    "BMI" : [1, "0C"],
+    "ADD" : [2, "0D"],
+    "SUB" : [2, "0E"]
     }
 
 
@@ -161,7 +163,7 @@ def define_subroutine(words):
     if check(len(words) == 2 and words[0] == ":"
             and words[1] == trim_name(words[1]),
             words, Error.SUBRDEF_ERROR):
-        var_table[":"+words[1]] = hex(current_addr)[2:]
+        var_table[":"+words[1]] = hex(current_addr)[2:].upper()
 
 
 keywords = {"DEF": define_variable, ":": define_subroutine}
@@ -268,7 +270,6 @@ def parse_line(line, verbose=False, silent=False, print_binary=False):
     Line on format: (str instr_name, hexstr mode, hexstr operand)
     """
     global current_addr, raw_data
-
     words = trim_line_to_words(line, silent)
     if not words:  # Empty line
         return
@@ -321,7 +322,7 @@ def parse_file(file_name, verbose=False, print_binary=False):
     with open(file_name) as f:
         lines = f.readlines()
         for line in lines:
-            parse_line(line.rstrip(), verbose, silent=True)
+            parse_line(line.rstrip(), verbose=False, silent=True)
         current_addr = 0
         for line in lines:
             parse_line(line.rstrip(), verbose, print_binary=print_binary)

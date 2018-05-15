@@ -4,13 +4,13 @@ DEF %SCORE_NUM2 0F4 -- Is the 4-offset correct here?
 DEF %TILE_BASE  0D0 -- Base tilemem adress.
 -- Setting initial scores
 LOAD R1, #0
-STORE R1, $%SCORE_NUM1
-STORE R1, $%SCORE_NUM2
+STORE R1, #%SCORE_NUM1
+STORE R1, #%SCORE_NUM2
 : SHOW_SCORE
 -- Function to update level map score tiles
 -- Input:
 --  R1: Binary player ID
--- Destructive to R1, R2, R3
+-- Destructive to R1, R2, R3, R4
 LOAD R2, #0 -- Counter
 CMP R1, #1
 BEQ $:SCORE_PLAYER_ONE
@@ -44,7 +44,8 @@ BRA $:LOOP_10
 : END_10
 
 ADD R3, #A              -- Restore last removed
-CMP R2, #0              -- if 0, add 10
+LOAD R4, #0
+CMP R2, R4              -- if 0, add 10
 BNE $:SET_10
 LOAD R2, #A
 : SET_10
