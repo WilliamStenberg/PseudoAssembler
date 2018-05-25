@@ -61,7 +61,8 @@ instructions = {
     "OR"  : [2, "10"],
     "REF" : [3, "11"],
     "UPD" : [2, "12"],
-    "BRT" : [1, "13"]
+    "BRT" : [1, "13"],
+    "BRP" : [1, "14"]
     }
 
 
@@ -204,10 +205,12 @@ def generate_format_1(opcode_hex, operand):
         return "0"
     mode = hex_to_bin(modes[mode_identifier], 2)
     opcode = hex_to_bin(opcode_hex, 5)
-    operand = hex_to_bin(trim_hex(operand), 25)
+    operand = trim_hex(operand)
     if mode == "01":
-        raw_data = bin_to_hex(ext_zeroes(operand, 32))
+        raw_data = operand
         operand = "0" * 25
+    else:
+        operand = hex_to_bin(operand, 25)    
     bit_str = opcode + mode + operand
     return bin_to_hex(bit_str)
 
@@ -225,10 +228,12 @@ def generate_format_2(opcode_hex, reg_index, operand):
         return "0"
     mode = hex_to_bin(modes[mode_identifier], 2)
     opcode = hex_to_bin(opcode_hex, 5)
-    operand = hex_to_bin(trim_hex(operand), 21)
+    operand = trim_hex(operand)
     if mode == "01":
-        raw_data = bin_to_hex(ext_zeroes(operand, 32))
+        raw_data = operand
         operand = "0" * 21
+    else:
+        operand = hex_to_bin(trim_hex(operand), 21)
     reg = "{0:04b}".format(int(trim_hex(reg_index)))
     bit_str = opcode + mode + reg + operand
     return bin_to_hex(bit_str)
